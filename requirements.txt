@@ -1,0 +1,4 @@
+mavsdk
+numpy
+pandas
+matplotlib
