@@ -1,7 +1,7 @@
 # Autonomous-UAV-Trajectory-Control-Suite
 
 A collection of **PX4 Offboard** experiments for autonomous UAV trajectory control,  
-built with **MAVSDK + PX4 SITL **.
+built with MAVSDK + PX4 SITL .
 
 The goal of this project is to explore:
 - Position & velocity offboard control
