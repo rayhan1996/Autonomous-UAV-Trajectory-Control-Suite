@@ -77,6 +77,8 @@ T = trajectory.duration()
 
 print(f"x={x:.2f}, y={y:.2f}, duration={T:.2f}s")
 
+```
+
 ---
 
 ## 🔗 Integration with Mission Layer
@@ -90,5 +92,21 @@ The mission layer:
 
 This separation allows missions to focus on execution logic,
 while trajectories remain reusable and independent from flight control.
+
+---
+
+## 🚀 Why This Matters
+
+This structure reflects real-world UAV autonomy systems, where:
+
+- planners generate reference paths
+- controllers track those paths
+- safety systems continuously monitor deviations
+
+It also enables future extensions such as:
+- dynamic trajectory switching
+- obstacle-aware planning
+- AI-based path generation
+
 
 
