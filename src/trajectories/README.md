@@ -50,9 +50,10 @@ A smooth horizontal figure-8 trajectory defined by sinusoidal functions:
 
 #### Mathematical Form
 
-
+```text
 x(t) = R · sin(ωt)
 y(t) = 0.5 · R · sin(2ωt)
+```
 
 
 Where:
