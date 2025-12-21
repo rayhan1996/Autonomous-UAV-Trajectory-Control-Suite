@@ -20,7 +20,11 @@ This separation allows:
 
 - A **trajectory** defines a reference path:
 
+```text
+
 f(t) = (x, y, z, yaw)
+
+```
 
 - A **mission** decides:
 - how to follow the trajectory
