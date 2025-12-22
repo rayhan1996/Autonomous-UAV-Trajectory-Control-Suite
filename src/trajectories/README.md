@@ -1,117 +1,105 @@
-# Trajectory Library
+✈️ Trajectory Library
 
-This directory contains **pure mathematical trajectory generators**
+This directory contains pure mathematical trajectory generators
 used for autonomous UAV flight planning.
 
-Trajectories in this folder are **independent of PX4, MAVSDK, or flight control logic**.
-They only describe *where the UAV should be* as a function of time.
+All trajectories are independent of PX4, MAVSDK, or control logic.
+They only define reference paths as a function of time.
 
-This separation allows:
-- clean mission design
-- reusable path planning
-- easier testing and analysis
-- future extension to AI-based planners
+🎯 Design Principle
 
----
+Trajectory ≠ Mission
 
-## 📐 Design Philosophy
+A trajectory answers:
 
-**Trajectory ≠ Mission**
+Where should the UAV be at time t?
 
-- A **trajectory** defines a reference path:
 
-```text
+A mission decides:
 
-f(t) = (x, y, z, yaw)
+how to track the trajectory
 
-```
+which control mode to use (position / velocity)
 
-- A **mission** decides:
-- how to follow the trajectory
-- which control mode to use
-- what safety constraints apply
-- how telemetry is logged
+what safety constraints apply
 
-Keeping trajectories pure and stateless makes the system modular,
-testable, and closer to real UAV autonomy architectures.
+how telemetry is logged
 
----
+This separation reflects real-world UAV autonomy architectures
+(planner → controller → safety).
 
-## 📂 Available Trajectories
+📂 Available Trajectories
+◾ Circle Trajectory
 
-### ▶ Figure-8 Trajectory
+File: circle.py
 
-**File:** `figure8.py`
+Constant curvature motion
 
-A smooth horizontal figure-8 trajectory defined by sinusoidal functions:
+Fixed altitude
 
-- Continuous curvature
-- No sharp corners
-- Ideal for testing:
-- trajectory tracking accuracy
-- safety watchdogs
-- drift and control stability
+Used as baseline for tracking accuracy and drift analysis
 
-#### Mathematical Form
+Mathematical form:
 
-```text
+x(t) = cx + R · cos(ωt)
+y(t) = cy + R · sin(ωt)
+
+◾ Figure-8 Trajectory
+
+File: figure8.py
+
+Variable curvature
+
+Direction changes
+
+Tests controller stability and cross-over behavior
+
+Mathematical form:
+
 x(t) = R · sin(ωt)
 y(t) = 0.5 · R · sin(2ωt)
-```
 
+◾ Spiral (Helix) Trajectory
 
-Where:
-- `R` = trajectory radius
-- `ω` = angular frequency
+File: spiral.py
 
----
-## 🧩 Usage Example
+Full 3D path
 
-```python
-from src.trajectories.figure8 import Figure8Trajectory
+Circular motion with monotonic altitude change
 
-# Create a trajectory instance
-trajectory = Figure8Trajectory(radius=3.0, omega=0.3)
+Common in mapping, inspection, and search missions
 
-# Query reference position at time t (seconds)
-t = 1.25
-x, y = trajectory.position_xy(t)
+Form:
 
-# Nominal duration of one full figure-8
-T = trajectory.duration()
+x(t), y(t) → circular motion
+z(t)      → linear altitude progression
 
-print(f"x={x:.2f}, y={y:.2f}, duration={T:.2f}s")
+🔗 Integration
 
-```
+Trajectory modules:
 
----
+generate reference paths only
 
-## 🔗 Integration with Mission Layer
+contain no state
 
-The trajectory modules in this directory only generate **reference paths**.
+contain no PX4 or MAVSDK dependencies
 
-The mission layer:
-- consumes these trajectory references
-- converts them into PX4 Offboard position setpoints
-- applies safety constraints and telemetry logging
+They are consumed by:
 
-This separation allows missions to focus on execution logic,
-while trajectories remain reusable and independent from flight control.
+position-based autonomous missions
 
----
+safety watchdogs for drift monitoring
 
-## 🚀 Why This Matters
+telemetry analysis pipelines
 
-This structure reflects real-world UAV autonomy systems, where:
+🚀 Why This Matters
 
-- planners generate reference paths
-- controllers track those paths
-- safety systems continuously monitor deviations
+This structure enables:
 
-It also enables future extensions such as:
-- dynamic trajectory switching
-- obstacle-aware planning
-- AI-based path generation
+reusable path planning
 
+clean mission logic
 
+easier testing and extension
 
+future AI-based planners (vision / SLAM / RL)
