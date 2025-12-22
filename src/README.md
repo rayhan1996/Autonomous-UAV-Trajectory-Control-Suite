@@ -134,18 +134,20 @@ PX4 SITL or a real PX4-based UAV must be running.
 🧭 Project Status
 
 ✔ Trajectory planning library complete
+
 ✔ Position & velocity offboard missions implemented
+
 ✔ Safety and telemetry integrated
 
 Future extensions:
 
-Obstacle-aware planning
+- Obstacle-aware planning
 
-Vision-based navigation
+- Vision-based navigation
 
-AI-driven trajectory generation
+- AI-driven trajectory generation
 
-SLAM / mapping integration
+- SLAM / mapping integration
 
 👤 Author
 
