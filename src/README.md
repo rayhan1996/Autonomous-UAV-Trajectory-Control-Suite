@@ -131,7 +131,9 @@ python -m src.missions.circle_position_mission
 
 PX4 SITL or a real PX4-based UAV must be running.
 
-🧭 Project Status
+---
+
+## 🧭 Project Status
 
 ✔ Trajectory planning library complete
 
@@ -149,7 +151,9 @@ Future extensions:
 
 - SLAM / mapping integration
 
-👤 Author
+  ---
+
+## 👤 Author
 
 Developed as a portfolio and research-oriented project
 focused on autonomous UAV navigation and control.
