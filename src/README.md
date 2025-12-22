@@ -156,9 +156,9 @@ focused on autonomous UAV navigation and control.
 
 This repository is intended to demonstrate:
 
-UAV autonomy fundamentals
+- UAV autonomy fundamentals
 
-clean software architecture
+- clean software architecture
 
-safety-conscious flight control design
+- safety-conscious flight control design
 
