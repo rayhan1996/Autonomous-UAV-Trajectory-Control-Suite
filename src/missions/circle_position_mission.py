@@ -51,7 +51,7 @@ async def fly_circle(drone, state, trajectory, rate_hz):
 
 
 async def main():
-    cfg = PX4Config(system_address="udp://:14540", offboard_rate_hz=20)
+    cfg = PX4Config(system_address="udpin://0.0.0.0:14540", offboard_rate_hz=20)
 
     drone = await connect_px4(cfg.system_address)
     await wait_armable(drone)
