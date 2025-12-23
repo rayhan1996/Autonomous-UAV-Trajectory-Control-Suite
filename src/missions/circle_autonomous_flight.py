@@ -95,7 +95,7 @@ async def fly_trajectory(
 
 async def main():
     cfg = PX4Config(
-        system_address="udp://:14540",
+        system_address="udpin://0.0.0.0:14540",
         takeoff_alt_m=ALTITUDE_M,
         offboard_rate_hz=20.0,
     )
