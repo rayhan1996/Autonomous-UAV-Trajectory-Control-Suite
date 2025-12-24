@@ -106,8 +106,8 @@ async def main():
     trajectory = CircleTrajectory(
         radius=RADIUS_M,
         omega=OMEGA,
-        cx=x0,
-        cy=y0,
+        center_x=x0,
+        center_y=y0,
     )
 
     print(
