@@ -77,7 +77,6 @@ async def main():
     # Pre-stream position setpoints BEFORE starting Offboard
     # --------------------------------------------------
     print("Pre-streaming position setpoints...")
-    print("+++")
 
     for _ in range(15):
         await drone.offboard.set_position_ned(
@@ -101,6 +100,7 @@ async def main():
 
     # ---- Trajectory ----
     trajectory = CircleTrajectory(radius=3.0, omega=0.05)
+    print(f"[CFG] R={R}, omega={OMEGA}, v_ref={R*OMEGA:.3f} m/s")
 
     # ---- Safety watchdog ----
     asyncio.create_task(
