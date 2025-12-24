@@ -77,6 +77,8 @@ async def main():
     # Pre-stream position setpoints BEFORE starting Offboard
     # --------------------------------------------------
     print("Pre-streaming position setpoints...")
+    print("+++")
+
     for _ in range(15):
         await drone.offboard.set_position_ned(
             PositionNedYaw(0.0, 0.0, -ALTITUDE_M, 0.0)
