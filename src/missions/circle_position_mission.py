@@ -98,7 +98,7 @@ async def main():
     )
 
     # ---- Trajectory ----
-    trajectory = CircleTrajectory(radius=3.0, omega=0.3)
+    trajectory = CircleTrajectory(radius=3.0, omega=0.05)
 
     # ---- Safety watchdog ----
     asyncio.create_task(
