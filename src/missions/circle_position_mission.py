@@ -35,7 +35,7 @@ ALTITUDE_M = 2.5
 LOG_FILE = "circle_position_mission_log.csv"
 
 RADIUS_M = 3.0
-OMEGA = 0.05  # rad/s (slow and safe)
+OMEGA = 0.3  # rad/s (slow and safe)
 
 # Phase/spatial alignment: move to start point before circle begins
 GOTO_START_SECONDS = 3.0      # time to move to start point
