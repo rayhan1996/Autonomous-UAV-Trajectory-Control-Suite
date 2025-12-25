@@ -1,24 +1,55 @@
 import csv
 import time
+from pathlib import Path
 from mavsdk import System
 from .shared_state import SharedState
 
-async def log_telemetry_csv(drone: System, state: SharedState, filename: str):
-    print(f"Telemetry logger started → {filename}")
 
-    with open(filename, "w", newline="") as f:
+async def log_telemetry_csv(
+    drone: System,
+    state: SharedState,
+    filename: str,
+):
+    """
+    Logs UAV telemetry to a CSV file inside the project-level `logs/` directory.
+
+    This function is intentionally filesystem-robust:
+    - CSV is always written to <repo_root>/logs/
+    - Independent of current working directory
+    """
+
+    # --------------------------------------------------
+    # Resolve project root and logs directory
+    # src/utils/telemetry_logger.py -> repo_root = parents[2]
+    # --------------------------------------------------
+    repo_root = Path(__file__).resolve().parents[2]
+    logs_dir = repo_root / "logs"
+    logs_dir.mkdir(exist_ok=True)
+
+    log_path = logs_dir / filename
+
+    print(f"Telemetry logger started → {log_path}")
+
+    # --------------------------------------------------
+    # Open CSV file
+    # --------------------------------------------------
+    with open(log_path, "w", newline="") as f:
         writer = csv.writer(f)
+
+        # CSV header
         writer.writerow([
             "t",
             "north_m", "east_m", "down_m",
             "vn_m_s", "ve_m_s", "vd_m_s",
             "roll_deg", "pitch_deg", "yaw_deg",
-            "flight_mode"
+            "flight_mode",
         ])
 
         t0 = time.time()
 
-        # We rely on watcher-updated state; sample at ~10Hz
+        # --------------------------------------------------
+        # Logging loop (~10 Hz)
+        # --------------------------------------------------
         while state.running:
             now = time.time() - t0
 
@@ -27,9 +58,9 @@ async def log_telemetry_csv(drone: System, state: SharedState, filename: str):
             att = state.attitude_deg
             mode = state.flight_mode
 
-            if pos and vel:
+            if pos is not None and vel is not None:
                 roll = pitch = yaw = ""
-                if att:
+                if att is not None:
                     roll, pitch, yaw = att
 
                 mode_str = ""
@@ -41,13 +72,16 @@ async def log_telemetry_csv(drone: System, state: SharedState, filename: str):
                     f"{pos[0]:.3f}", f"{pos[1]:.3f}", f"{pos[2]:.3f}",
                     f"{vel[0]:.3f}", f"{vel[1]:.3f}", f"{vel[2]:.3f}",
                     f"{roll}", f"{pitch}", f"{yaw}",
-                    mode_str
+                    mode_str,
                 ])
 
-            # 10Hz logging
-            await __sleep(0.1)
+            # ~10 Hz logging rate
+            await _sleep(0.1)
 
-# small helper to keep asyncio import local
-async def __sleep(sec: float):
+
+# --------------------------------------------------
+# Small helper to keep asyncio import local
+# --------------------------------------------------
+async def _sleep(sec: float):
     import asyncio
     await asyncio.sleep(sec)
