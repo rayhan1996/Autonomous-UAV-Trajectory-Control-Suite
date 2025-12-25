@@ -6,8 +6,10 @@ from pathlib import Path
 # Paths
 # --------------------------------------------------
 
-CSV_PATH = Path("logs/circle_position_mission_log.csv")
-OUT_DIR = Path("analysis/outputs")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CSV_PATH = REPO_ROOT / "logs" / "circle_position_mission_log.csv"
+
+OUT_DIR = REPO_ROOT / "analysis" / "outputs"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 OUT_PNG = OUT_DIR / "circle_xy_trajectory.png"
