@@ -22,6 +22,9 @@ cy = np.mean(y)
 r = np.mean(np.sqrt((x - cx)**2 + (y - cy)**2))
 
 drift = np.abs(np.sqrt((x - cx)**2 + (y - cy)**2) - r)
+mask = t > 4.0
+t = t[mask] - t[mask][0]
+drift = drift[mask]
 
 plt.figure(figsize=(8, 4))
 plt.plot(t, drift, linewidth=2)
