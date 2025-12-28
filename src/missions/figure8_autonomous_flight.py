@@ -78,12 +78,14 @@ async def fly_trajectory(
 
         x, y = trajectory.position_xy(t)
 
+        yaw = trajectory.yaw_deg(t)
+
         await drone.offboard.set_position_ned(
             PositionNedYaw(
-                x,               # north
-                y,               # east
-                -ALTITUDE_M,     # down (NED)
-                0.0              # yaw
+                x,
+                y,
+                -ALTITUDE_M,
+                yaw
             )
         )
 
