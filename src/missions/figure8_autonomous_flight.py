@@ -1,21 +1,24 @@
 """
-Autonomous Figure-8 Flight Mission
+Autonomous Figure-8 Flight Mission (Fixed & Hardened)
 
 This mission executes a fully autonomous figure-8 trajectory using
 PX4 Position Offboard control, while continuously monitoring flight
 safety and logging telemetry data.
 
-Responsibilities:
-- PX4 connection & arm/takeoff
-- Start/stop Offboard mode
-- Execute Figure-8 trajectory (via trajectory library)
-- Run safety watchdog (drift, speed, attitude, timeout)
-- Log telemetry to CSV
-- Safe landing on completion or emergency
+Fixes applied (4 issues):
+1) ✅ Unified time-base: shared t0 passed to BOTH fly_trajectory and safety_watchdog
+2) ✅ Always stop offboard + land even on emergency/exception (guaranteed in finally)
+3) ✅ Proper task cancellation: cancel + await with CancelledError suppression
+4) ✅ Explicit yaw policy (still constant 0.0, but clean & extensible)
+
+Also added (recommended):
+- Optional spatial alignment step BEFORE starting t0 (like circle mission)
+  to reduce initial drift spikes.
 """
 
 import asyncio
 import time
+from contextlib import suppress
 
 from mavsdk.offboard import PositionNedYaw
 
@@ -43,15 +46,97 @@ from src.trajectories.figure8 import Figure8Trajectory
 
 
 # ============================================================
-# Mission parameters (can later be moved to config / CLI)
+# Mission parameters
 # ============================================================
 
-ALTITUDE_M = 2.5           # Flight altitude (positive up)
+ALTITUDE_M = 2.5
 LOG_FILENAME = "figure8_autonomous_flight_log.csv"
 
+# Trajectory config
+RADIUS_M = 3.0
+OMEGA = 0.3
+
+# Offboard rate
+OFFBOARD_RATE_HZ = 20.0
+
+# Yaw policy (deg)
+DEFAULT_YAW_DEG = 0.0
+
+# Optional: spatial alignment before starting the reference clock
+ENABLE_ALIGNMENT = True
+ALIGN_SECONDS = 3.0
+ALIGN_RATE_HZ = 20.0
+ALIGN_SETTLE_SECONDS = 0.5
+
 
 # ============================================================
-# Trajectory execution
+# Helpers
+# ============================================================
+
+async def cancel_and_await(tasks):
+    """Cancel tasks and await them to avoid warnings/unfinished coroutines."""
+    for t in tasks:
+        if t is None:
+            continue
+        t.cancel()
+    for t in tasks:
+        if t is None:
+            continue
+        with suppress(asyncio.CancelledError):
+            await t
+
+
+async def goto_xy_linear(
+    drone,
+    state: SharedState,
+    x_target: float,
+    y_target: float,
+    altitude_m: float,
+    duration_s: float,
+    rate_hz: float,
+    settle_s: float = 0.0,
+):
+    """
+    Move linearly from current XY to target XY in given duration.
+    Useful to align spatial phase before starting the reference trajectory clock.
+    """
+    dt = 1.0 / rate_hz
+
+    # Wait until we have a valid position
+    while state.pos_ned is None and state.running and not state.emergency_stop:
+        await asyncio.sleep(0.05)
+
+    if state.pos_ned is None:
+        return
+
+    x0, y0, _ = state.pos_ned
+    steps = max(1, int(duration_s * rate_hz))
+
+    for i in range(steps):
+        if not state.running or state.emergency_stop:
+            break
+
+        alpha = (i + 1) / steps
+        x_cmd = x0 + alpha * (x_target - x0)
+        y_cmd = y0 + alpha * (y_target - y0)
+
+        await drone.offboard.set_position_ned(
+            PositionNedYaw(x_cmd, y_cmd, -altitude_m, DEFAULT_YAW_DEG)
+        )
+        await asyncio.sleep(dt)
+
+    # Optional settle
+    if settle_s > 0.0 and state.running and not state.emergency_stop:
+        t_end = time.time() + settle_s
+        while time.time() < t_end:
+            await drone.offboard.set_position_ned(
+                PositionNedYaw(x_target, y_target, -altitude_m, DEFAULT_YAW_DEG)
+            )
+            await asyncio.sleep(dt)
+
+
+# ============================================================
+# Trajectory execution (uses shared t0)
 # ============================================================
 
 async def fly_trajectory(
@@ -59,20 +144,14 @@ async def fly_trajectory(
     state: SharedState,
     trajectory: Figure8Trajectory,
     rate_hz: float,
+    t0: float,  # ✅ shared mission start time reference
 ):
-    """
-    Execute the reference trajectory until completion
-    or until safety watchdog triggers an emergency.
-    """
     dt = 1.0 / rate_hz
-    start_time = time.time()
-
     print("▶ Starting autonomous Figure-8 trajectory...")
 
     while state.running and not state.emergency_stop:
-        t = time.time() - start_time
+        t = time.time() - t0  # ✅ shared time base with watchdog
 
-        # Stop normally when trajectory duration is complete
         if t > trajectory.duration():
             break
 
@@ -99,13 +178,10 @@ async def fly_trajectory(
 # ============================================================
 
 async def main():
-    # --------------------------------------------------------
-    # Configuration
-    # --------------------------------------------------------
     cfg = PX4Config(
-        system_address="udpin://0.0.0.0:14540",   # PX4 SITL default
+        system_address="udpin://0.0.0.0:14540",
         takeoff_alt_m=ALTITUDE_M,
-        offboard_rate_hz=20.0,
+        offboard_rate_hz=OFFBOARD_RATE_HZ,
     )
 
     # --------------------------------------------------------
@@ -128,72 +204,111 @@ async def main():
     # --------------------------------------------------------
     # Prepare Offboard mode
     # --------------------------------------------------------
-    await prestream_position_setpoints(
-        drone,
-        down_m=-ALTITUDE_M,
-        n=20,
-    )
+    await prestream_position_setpoints(drone, down_m=-ALTITUDE_M, n=20)
 
     if not await start_offboard(drone):
+        print("Offboard start failed, aborting mission.")
         return
 
     # --------------------------------------------------------
-    # Shared state & background tasks
+    # Shared state & telemetry/watchers EARLY
     # --------------------------------------------------------
     state = SharedState()
+    state.running = True
+    state.emergency_stop = False
 
     task_posvel = asyncio.create_task(watch_posvel(drone, state))
     task_att = asyncio.create_task(watch_attitude(drone, state))
     task_mode = asyncio.create_task(watch_flight_mode(drone, state))
-    task_logger = asyncio.create_task(
-        log_telemetry_csv(drone, state, LOG_FILENAME)
-    )
+    task_logger = asyncio.create_task(log_telemetry_csv(drone, state, LOG_FILENAME))
+
+    background_tasks = [task_posvel, task_att, task_mode]
 
     # --------------------------------------------------------
-    # Trajectory & safety watchdog
+    # Trajectory
     # --------------------------------------------------------
-    trajectory = Figure8Trajectory(
-        radius=3.0,
-        omega=0.3,
-    )
+    trajectory = Figure8Trajectory(radius=RADIUS_M, omega=OMEGA)
 
+    # --------------------------------------------------------
+    # Optional: spatial alignment BEFORE t0
+    # --------------------------------------------------------
+    if ENABLE_ALIGNMENT:
+        # Align to the trajectory start point at t=0
+        # For your Figure8Trajectory, position_xy(0) is the start reference.
+        x_start, y_start = trajectory.position_xy(0.0)
+
+        print(
+            f"[ALIGN] Going to Figure-8 start point: "
+            f"x={x_start:.2f}, y={y_start:.2f} (duration={ALIGN_SECONDS:.1f}s)"
+        )
+        await goto_xy_linear(
+            drone=drone,
+            state=state,
+            x_target=x_start,
+            y_target=y_start,
+            altitude_m=ALTITUDE_M,
+            duration_s=ALIGN_SECONDS,
+            rate_hz=ALIGN_RATE_HZ,
+            settle_s=ALIGN_SETTLE_SECONDS,
+        )
+
+    # --------------------------------------------------------
+    # ✅ Shared mission start time AFTER alignment
+    # --------------------------------------------------------
+    t0 = time.time()
+
+    # --------------------------------------------------------
+    # Safety watchdog (uses SAME t0) ✅
+    # NOTE: Your watchdog already lands on emergency.
+    # We still guarantee landing in finally for robustness.
+    # --------------------------------------------------------
     task_safety = asyncio.create_task(
         safety_watchdog(
             drone,
             state,
             reference_xy=lambda t: trajectory.position_xy(t),
             nominal_duration_s=trajectory.duration(),
+            t0=t0,  # ✅ shared reference
         )
     )
 
-    # --------------------------------------------------------
-    # Execute flight
-    # --------------------------------------------------------
-    await fly_trajectory(
-        drone,
-        state,
-        trajectory,
-        cfg.offboard_rate_hz,
-    )
+    background_tasks.append(task_safety)
 
     # --------------------------------------------------------
-    # Shutdown sequence
+    # Execute mission
     # --------------------------------------------------------
-    state.running = False
-    await task_logger
+    try:
+        await fly_trajectory(
+            drone=drone,
+            state=state,
+            trajectory=trajectory,
+            rate_hz=cfg.offboard_rate_hz,
+            t0=t0,
+        )
 
-    for task in (task_posvel, task_att, task_mode, task_safety):
-        task.cancel()
+    finally:
+        # ----------------------------------------------------
+        # Shutdown (always)
+        # ----------------------------------------------------
+        state.running = False
 
-    if not state.emergency_stop:
-        await stop_offboard_and_land(drone)
+        # Let logger finish
+        with suppress(Exception):
+            await task_logger
 
-    print("🏁 Autonomous Figure-8 mission completed.")
+        # Cancel watchers + safety cleanly
+        await cancel_and_await(background_tasks)
 
+        # ✅ Always stop offboard + land (even if emergency or exception)
+        with suppress(Exception):
+            await stop_offboard_and_land(drone)
 
-# ============================================================
-# Script entry
-# ============================================================
+        if getattr(state, "emergency_stop", False):
+            reason = getattr(state, "emergency_reason", "UNKNOWN")
+            print(f"🏁 Mission ended (EMERGENCY) → {reason}")
+        else:
+            print("🏁 Autonomous Figure-8 mission completed.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
