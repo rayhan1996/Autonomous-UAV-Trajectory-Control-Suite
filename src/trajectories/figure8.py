@@ -40,3 +40,18 @@ class Figure8Trajectory:
         Nominal duration for one full figure-8.
         """
         return 2 * math.pi / self.w
+
+    def yaw_deg(self, t: float) -> float:
+        """
+        Heading (yaw) aligned with trajectory velocity.
+        Returned in degrees (NED frame).
+        """
+        vx = self.R * self.w * math.cos(self.w * t)
+        vy = self.R * self.w * math.cos(2 * self.w * t)
+    
+        if abs(vx) < 1e-6 and abs(vy) < 1e-6:
+            return 0.0
+    
+        yaw_rad = math.atan2(vy, vx)
+        return math.degrees(yaw_rad)
+
