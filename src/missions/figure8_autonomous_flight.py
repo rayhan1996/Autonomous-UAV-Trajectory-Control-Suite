@@ -206,6 +206,15 @@ async def main():
     # --------------------------------------------------------
     await prestream_position_setpoints(drone, down_m=-ALTITUDE_M, n=20)
 
+    print("Pre-streaming OFFBOARD setpoints...")
+
+    for _ in range(20):
+        await drone.offboard.set_position_ned(
+            PositionNedYaw(0.0, 0.0, -ALTITUDE_M, 0.0)
+        )
+        await asyncio.sleep(0.05)
+    
+    print("Starting Offboard...")
     if not await start_offboard(drone):
         print("Offboard start failed, aborting mission.")
         return
