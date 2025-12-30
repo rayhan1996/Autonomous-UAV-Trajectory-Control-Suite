@@ -160,7 +160,4 @@ plt.close()
 
 print(f"Saved summary plot → {OUTPUT_PNG}")
 
-مسیر ذخیره این تغییر نکرده؟
-
-
 
