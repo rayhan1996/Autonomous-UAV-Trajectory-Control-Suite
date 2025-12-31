@@ -13,13 +13,13 @@ from src.trajectories.figure8 import Figure8Trajectory
 # Paths (aligned with repo structure)
 # --------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 CSV_PATH = REPO_ROOT / "logs" / "csv" / "figure8_autonomous_flight_log.csv"
-OUTPUT_DIR = REPO_ROOT / "analysis" / "outputs"
+OUTPUT_DIR = REPO_ROOT / "analysis" / "figure8" / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-OUTPUT_PNG = OUTPUT_DIR / "figure8_xy_actual_vs_reference.png"
+OUTPUT_PNG = OUTPUT_DIR / "xy_actual_vs_reference.png"
 
 
 # --------------------------------------------------
