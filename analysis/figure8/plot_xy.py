@@ -33,10 +33,9 @@ y_actual = []
 with open(CSV_PATH, newline="") as f:
     reader = csv.DictReader(f)
     for row in reader:
-        t.append(float(row["time_s"]))
-        x_actual.append(float(row["pos_north_m"]))
-        y_actual.append(float(row["pos_east_m"]))
-
+        t.append(float(row["t"]))
+        x_actual.append(float(row["north_m"]))
+        y_actual.append(float(row["east_m"]))
 
 # --------------------------------------------------
 # Normalize time (t = 0 at mission start)
