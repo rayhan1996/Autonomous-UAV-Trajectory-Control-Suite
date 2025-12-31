@@ -6,6 +6,25 @@ import matplotlib.pyplot as plt
 
 from src.trajectories.figure8 import Figure8Trajectory
 
+
+# --------------------------------------------------
+# Column mapping (CSV schema)
+# --------------------------------------------------
+
+COL_T = "t"
+COL_X = "north_m"
+COL_Y = "east_m"
+COL_Z = "down_m"
+
+COL_VX = "vn_m_s"
+COL_VY = "ve_m_s"
+COL_VZ = "vd_m_s"
+
+COL_ROLL = "roll_deg"
+COL_PITCH = "pitch_deg"
+COL_YAW = "yaw_deg"
+
+
 # --------------------------------------------------
 # Paths (mission-local outputs)
 # --------------------------------------------------
@@ -18,6 +37,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_PNG = OUTPUT_DIR / "figure8_time_series_summary.png"
+
 
 # --------------------------------------------------
 # Trajectory parameters (must match mission)
@@ -48,19 +68,19 @@ yaw = []
 with open(CSV_PATH, newline="") as f:
     reader = csv.DictReader(f)
     for row in reader:
-        t.append(float(row["time_s"]))
+        t.append(float(row[COL_T]))
 
-        x.append(float(row["pos_north_m"]))
-        y.append(float(row["pos_east_m"]))
-        z.append(float(row["pos_down_m"]))
+        x.append(float(row[COL_X]))
+        y.append(float(row[COL_Y]))
+        z.append(float(row[COL_Z]))
 
-        vx.append(float(row["vel_north_m"]))
-        vy.append(float(row["vel_east_m"]))
-        vz.append(float(row["vel_down_m"]))
+        vx.append(float(row[COL_VX]))
+        vy.append(float(row[COL_VY]))
+        vz.append(float(row[COL_VZ]))
 
-        roll.append(float(row["roll_deg"]))
-        pitch.append(float(row["pitch_deg"]))
-        yaw.append(float(row["yaw_deg"]))
+        roll.append(float(row[COL_ROLL]))
+        pitch.append(float(row[COL_PITCH]))
+        yaw.append(float(row[COL_YAW]))
 
 
 # --------------------------------------------------
@@ -95,7 +115,7 @@ for ti in t_rel:
 # Derived metrics
 # --------------------------------------------------
 
-# Drift (position error in XY)
+# Drift (XY position error)
 drift = [
     math.hypot(x[i] - x_ref[i], y[i] - y_ref[i])
     for i in range(len(t_rel))
@@ -159,5 +179,3 @@ plt.savefig(OUTPUT_PNG, dpi=200)
 plt.close()
 
 print(f"Saved summary plot → {OUTPUT_PNG}")
-
-
