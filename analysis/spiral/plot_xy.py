@@ -55,18 +55,17 @@ trajectory = SpiralTrajectory(
     omega=0.3,
     center_x=0.0,
     center_y=0.0,
-    start_z=0.0
-    end_z=-5.0
+    start_z=0.0,
+    end_z=-5.0,
 )
 
 x_ref = []
 y_ref = []
 
 for ti in t_rel:
-    x, y = trajectory.position_xy(ti)
+    x, y, _ = trajectory.position_xyz(ti)
     x_ref.append(x)
     y_ref.append(y)
-
 
 # --------------------------------------------------
 # Plot
