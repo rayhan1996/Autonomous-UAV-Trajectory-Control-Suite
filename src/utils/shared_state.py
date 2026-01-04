@@ -13,3 +13,7 @@ class SharedState:
     running: bool = True
     emergency_stop: bool = False
     emergency_reason: str = ""
+
+    # ✅ Mission markers for precise analysis
+    mission_phase: str = "INIT"
+    mission_t0_unix: Optional[float] = None  # absolute UNIX timestamp when TRAJECTORY starts
