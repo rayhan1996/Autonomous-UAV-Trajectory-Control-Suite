@@ -20,7 +20,7 @@ async def log_telemetry_csv(
 
     # Resolve repo root and logs directory
     repo_root = Path(__file__).resolve().parents[2]
-    logs_dir = repo_root / "logs"
+    logs_dir = repo_root / "logs" / "csv" /
     logs_dir.mkdir(exist_ok=True)
 
     log_path = logs_dir / filename
