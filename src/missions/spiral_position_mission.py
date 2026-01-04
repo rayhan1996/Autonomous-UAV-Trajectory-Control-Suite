@@ -1,12 +1,13 @@
 """
-Autonomous Spiral (Helix) Position Mission (Rebuilt & Hardened)
+Autonomous Spiral (Helix) Position Mission (Rebuilt & Hardened + Markers)
 
-What this version fixes:
+Fixes included:
 1) ✅ Shared time base (t0) between mission + safety_watchdog
 2) ✅ Spatial alignment BEFORE t0 (go to spiral start point) -> prevents initial ~R drift
 3) ✅ Correct NED "down" usage for altitude (start_z/end_z consistent with takeoff altitude)
 4) ✅ Robust shutdown: always stop offboard + land, cancel tasks cleanly
 5) ✅ Optional yaw alignment with path (finite diff on trajectory)
+6) ✅ Mission markers in CSV (mission_phase + mission_t0_unix) for precise drift/time alignment
 
 Notes:
 - NED: (north, east, down). To fly "ALTITUDE_M meters above home", use down = -ALTITUDE_M
@@ -82,9 +83,7 @@ async def cancel_and_await(tasks):
 
 
 def yaw_from_spiral(trajectory: SpiralTrajectory, t: float, eps: float = 0.05) -> float:
-    """
-    Compute yaw (deg) aligned with trajectory velocity (finite difference).
-    """
+    """Compute yaw (deg) aligned with trajectory velocity (finite difference)."""
     x1, y1, _ = trajectory.position_xyz(t)
     x2, y2, _ = trajectory.position_xyz(t + eps)
 
@@ -140,7 +139,9 @@ async def goto_xyz_linear(
     if settle_s > 0.0 and state.running and not state.emergency_stop:
         t_end = time.time() + settle_s
         while time.time() < t_end:
-            await drone.offboard.set_position_ned(PositionNedYaw(x_target, y_target, z_target, yaw_deg))
+            await drone.offboard.set_position_ned(
+                PositionNedYaw(x_target, y_target, z_target, yaw_deg)
+            )
             await asyncio.sleep(dt)
 
 
@@ -206,7 +207,7 @@ async def main():
     await asyncio.sleep(5)
 
     # --------------------------------------------------------
-    # Build trajectory (✅ correct NED down)
+    # Build trajectory (correct NED down)
     # Start at -ALTITUDE_M, end at -(ALTITUDE_M + CLIMB_M)
     # --------------------------------------------------------
     trajectory = SpiralTrajectory(
@@ -219,11 +220,17 @@ async def main():
     # --------------------------------------------------------
     # Offboard prep (prestream)
     # --------------------------------------------------------
+    # ✅ marker
+    state = SharedState()
+    state.mission_phase = "OFFBOARD_PREP"
+
     await prestream_position_setpoints(drone, down_m=trajectory.z0, n=20)
 
-    # (Optional) Extra local prestream burst (helps some setups)
+    # Optional extra local prestream burst
     for _ in range(20):
-        await drone.offboard.set_position_ned(PositionNedYaw(0.0, 0.0, trajectory.z0, 0.0))
+        await drone.offboard.set_position_ned(
+            PositionNedYaw(0.0, 0.0, trajectory.z0, 0.0)
+        )
         await asyncio.sleep(0.05)
 
     print("Starting Offboard...")
@@ -234,9 +241,9 @@ async def main():
     # --------------------------------------------------------
     # Shared state + watchers + logger (start EARLY)
     # --------------------------------------------------------
-    state = SharedState()
     state.running = True
     state.emergency_stop = False
+    state.mission_phase = "OFFBOARD"
 
     task_posvel = asyncio.create_task(watch_posvel(drone, state))
     task_att = asyncio.create_task(watch_attitude(drone, state))
@@ -246,10 +253,11 @@ async def main():
     background_tasks = [task_posvel, task_att, task_mode]
 
     # --------------------------------------------------------
-    # ✅ Alignment BEFORE starting reference clock (prevents drift≈R)
-    # Spiral start point is at t=0 -> (cx+R, cy+0, z0)
+    # Alignment BEFORE starting reference clock
     # --------------------------------------------------------
     if ENABLE_ALIGNMENT:
+        state.mission_phase = "ALIGNMENT"
+
         x_start, y_start, z_start = trajectory.position_xyz(0.0)
 
         print(
@@ -271,12 +279,14 @@ async def main():
         )
 
     # --------------------------------------------------------
-    # ✅ Shared mission start time AFTER alignment
+    # ✅ Trajectory start marker (ground truth)
     # --------------------------------------------------------
+    state.mission_phase = "TRAJECTORY"
     t0 = time.time()
+    state.mission_t0_unix = t0  # ✅ saved into CSV
 
     # --------------------------------------------------------
-    # Safety watchdog (uses SAME t0) ✅
+    # Safety watchdog (uses SAME t0)
     # --------------------------------------------------------
     task_safety = asyncio.create_task(
         safety_watchdog(
@@ -302,10 +312,10 @@ async def main():
         )
 
     finally:
-        # Stop loops
+        state.mission_phase = "LANDING"
         state.running = False
 
-        # Let logger finish cleanly
+        # Let logger finish
         with suppress(Exception):
             await task_logger
 
@@ -315,6 +325,8 @@ async def main():
         # Always stop offboard + land
         with suppress(Exception):
             await stop_offboard_and_land(drone)
+
+        state.mission_phase = "DONE"
 
         if getattr(state, "emergency_stop", False):
             reason = getattr(state, "emergency_reason", "UNKNOWN")
