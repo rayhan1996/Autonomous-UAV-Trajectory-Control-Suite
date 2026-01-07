@@ -1,23 +1,29 @@
 """
-Keyboard "Velocity-Feel" Control Mission (FINAL - STABLE + LOGGED + DEBUG)
+Keyboard "Velocity-Feel" Control Mission (FINAL - STABLE + LOGGED + UI + SAFE)
 
-Key idea (scientific + practical):
-- Use OFFBOARD POSITION setpoints for stability (PX4 loves this)
+Key idea:
+- Use OFFBOARD POSITION setpoints for stability (PX4 likes this)
 - Simulate velocity control by integrating commanded vx, vy over time:
       x_target += vx_cmd * dt
       y_target += vy_cmd * dt
-- Control altitude with a real altitude target (W/S), converted to NED down:
+- Control altitude with a real altitude target (W/S):
+      alt_target +=/-= ALT_STEP_M
       down_target = -alt_target
 
-Logging:
-- CSV telemetry -> logs/csv/keyboard_velocity_control.csv
-- Event log (keys/warnings/stages) -> logs/telemetry/keyboard_velocity_events.txt
+Improvements added:
+✅ Live UI telemetry in curses: altitude + mode + last key + targets
+✅ Soft altitude limiter (clamp) instead of immediate emergency stop
+✅ Pre-warning when approaching ALT_MIN/MAX
+✅ Correct log paths:
+   - CSV telemetry -> logs/csv/keyboard_velocity_control.csv
+   - Events/stages -> logs/telemetry/keyboard_velocity_events.txt
+✅ Clear stage prints and robust shutdown (offboard stop + land retry + disarm fallback)
 
 Controls:
 - Arrows: move N/E/S/W (velocity-feel)
 - W/S: up/down (altitude target)
 - A/D: yaw left/right (yaw rate -> integrated yaw target)
-- SPACE: stop (vx=vy=0)
+- SPACE: stop XY + yaw_rate
 - Q: quit & land
 """
 
@@ -27,6 +33,7 @@ import time
 import math
 from pathlib import Path
 from contextlib import suppress
+from dataclasses import dataclass
 
 from mavsdk.offboard import PositionNedYaw
 
@@ -60,6 +67,9 @@ YAW_RATE_RAD_S = 0.5
 ALT_MIN_M = 1.0
 ALT_MAX_M = 4.0
 
+# Warning margin near limits (m)
+ALT_WARN_MARGIN_M = 0.25
+
 # Control frequency
 CONTROL_DT_S = 0.10  # 10 Hz
 
@@ -69,7 +79,7 @@ EVENTS_NAME = "keyboard_velocity_events.txt"
 
 
 # ============================================================
-# Paths / logging helpers
+# Repo / logging helpers
 # ============================================================
 
 def repo_root() -> Path:
@@ -92,52 +102,18 @@ def event_log(line: str):
 
 
 # ============================================================
-# Keyboard reader (SYNC, curses) -> pushes keys into queue
-# ============================================================
-
-def keyboard_reader(stdscr, command_queue: "asyncio.Queue[int]", state: SharedState):
-    stdscr.nodelay(True)
-    stdscr.clear()
-
-    stdscr.addstr(0, 0, "Keyboard Control ✅ ACTIVE (Position Setpoints)")
-    stdscr.addstr(2, 0, "↑ ↓ ← → : Move (velocity-feel in XY)")
-    stdscr.addstr(3, 0, "W / S   : Up / Down (altitude target)")
-    stdscr.addstr(4, 0, "A / D   : Yaw Left / Right (yaw rate-feel)")
-    stdscr.addstr(5, 0, "SPACE   : Stop XY")
-    stdscr.addstr(6, 0, "Q       : Quit & Land")
-    stdscr.addstr(8, 0, f"ALT safety: {ALT_MIN_M:.1f}m .. {ALT_MAX_M:.1f}m")
-    stdscr.addstr(10, 0, ">>> KEYBOARD MODE RUNNING <<<")
-    stdscr.refresh()
-
-    event_log("CURSES_STARTED keyboard UI shown")
-
-    while state.running:
-        key = stdscr.getch()
-        if key != -1:
-            try:
-                command_queue.put_nowait(key)
-            except Exception:
-                pass
-        time.sleep(0.05)
-
-
-def run_curses(command_queue, state):
-    curses.wrapper(lambda stdscr: keyboard_reader(stdscr, command_queue, state))
-
-
-# ============================================================
-# Key decoding + helpers
+# Small helpers
 # ============================================================
 
 def decode_key(key: int) -> str:
     if key == curses.KEY_UP:
-        return "UP_ARROW"
+        return "UP"
     if key == curses.KEY_DOWN:
-        return "DOWN_ARROW"
+        return "DOWN"
     if key == curses.KEY_RIGHT:
-        return "RIGHT_ARROW"
+        return "RIGHT"
     if key == curses.KEY_LEFT:
-        return "LEFT_ARROW"
+        return "LEFT"
     if key == ord("w"):
         return "W"
     if key == ord("s"):
@@ -155,19 +131,90 @@ def decode_key(key: int) -> str:
 
 def wrap_yaw_deg(yaw_deg: float) -> float:
     # keep yaw in [-180, 180)
-    y = (yaw_deg + 180.0) % 360.0 - 180.0
-    return y
+    return (yaw_deg + 180.0) % 360.0 - 180.0
+
+
+def clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
+
+
+# ============================================================
+# UI state shared between async control loop and curses thread
+# ============================================================
+
+@dataclass
+class UIState:
+    last_key: str = "-"
+    status: str = "INIT"
+    warning: str = ""
+    alt_m: float = float("nan")
+    mode: str = ""
+    x_t: float = 0.0
+    y_t: float = 0.0
+    alt_t: float = 0.0
+    yaw_t: float = 0.0
+    vx_cmd: float = 0.0
+    vy_cmd: float = 0.0
+    yawrate_cmd_deg_s: float = 0.0
+
+
+# ============================================================
+# Keyboard UI thread (curses) -> pushes keys into queue
+# ============================================================
+
+def keyboard_ui(stdscr, command_queue: "asyncio.Queue[int]", state: SharedState, ui: UIState):
+    stdscr.nodelay(True)
+    curses.curs_set(0)
+
+    event_log("CURSES_STARTED UI shown")
+
+    while state.running:
+        stdscr.erase()
+
+        stdscr.addstr(0, 0, "Keyboard Control ✅ ACTIVE (OFFBOARD Position Setpoints)")
+        stdscr.addstr(2, 0, "↑ ↓ ← → : Move XY (velocity-feel)")
+        stdscr.addstr(3, 0, "W / S   : Altitude target Up/Down")
+        stdscr.addstr(4, 0, "A / D   : Yaw left/right (rate-feel)")
+        stdscr.addstr(5, 0, "SPACE   : Stop XY + yaw-rate")
+        stdscr.addstr(6, 0, "Q       : Quit & Land")
+
+        stdscr.addstr(8, 0, f"ALT safety: {ALT_MIN_M:.1f} .. {ALT_MAX_M:.1f} m   (warn margin {ALT_WARN_MARGIN_M:.2f})")
+
+        # Live telemetry + targets
+        stdscr.addstr(10, 0, f"STATUS: {ui.status}")
+        stdscr.addstr(11, 0, f"MODE  : {ui.mode}")
+        stdscr.addstr(12, 0, f"ALT(m): {ui.alt_m:.2f}    ALT_target: {ui.alt_t:.2f}")
+        stdscr.addstr(13, 0, f"XY_target: x={ui.x_t:.2f}  y={ui.y_t:.2f}")
+        stdscr.addstr(14, 0, f"Yaw_target(deg): {ui.yaw_t:.1f}")
+        stdscr.addstr(15, 0, f"Cmd: vx={ui.vx_cmd:.2f}  vy={ui.vy_cmd:.2f}  yawrate(deg/s)={ui.yawrate_cmd_deg_s:.1f}")
+        stdscr.addstr(16, 0, f"Last key: {ui.last_key}")
+
+        if ui.warning:
+            stdscr.addstr(18, 0, f"⚠ {ui.warning}")
+
+        stdscr.addstr(20, 0, ">>> Focus THIS terminal and press a key to control <<<")
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key != -1:
+            try:
+                command_queue.put_nowait(key)
+            except Exception:
+                pass
+
+        time.sleep(0.05)
+
+
+def run_curses(command_queue, state, ui):
+    curses.wrapper(lambda stdscr: keyboard_ui(stdscr, command_queue, state, ui))
 
 
 # ============================================================
 # Async control loop (ONLY MAVSDK HERE)
 # ============================================================
 
-async def position_control_loop(drone, state: SharedState, command_queue: "asyncio.Queue[int]"):
-    print("⌨️ ENTERING KEYBOARD CONTROL MODE (focus this terminal)")
-    event_log("CONTROL_LOOP_STARTED")
-
-    # Wait for telemetry position to exist (we need a start reference)
+async def position_control_loop(drone, state: SharedState, ui: UIState, command_queue: "asyncio.Queue[int]"):
+    ui.status = "WAIT_TELEMETRY"
     print("⌛ Waiting for first telemetry position...")
     while state.running and state.pos_ned is None:
         await asyncio.sleep(0.05)
@@ -178,9 +225,14 @@ async def position_control_loop(drone, state: SharedState, command_queue: "async
         state.running = False
         return
 
-    # Wait for first key press (prevents instant exit confusion)
-    print("⌛ Waiting for first key press...")
+    ui.status = "WAIT_FIRST_KEY"
+    print("⌨️ Keyboard control ready. Waiting for first key press...")
     while state.running and command_queue.empty():
+        # update UI telemetry while waiting
+        if state.pos_ned is not None:
+            ui.alt_m = -state.pos_ned[2]
+        if state.flight_mode is not None:
+            ui.mode = getattr(state.flight_mode, "name", str(state.flight_mode))
         await asyncio.sleep(0.1)
 
     if not state.running:
@@ -188,92 +240,106 @@ async def position_control_loop(drone, state: SharedState, command_queue: "async
 
     print("✅ First key received. Control is LIVE.")
     event_log("FIRST_KEY_RECEIVED")
+    ui.status = "CONTROL_LIVE"
 
-    # Initialize targets from current position
+    # Initialize targets from current telemetry
     x_target, y_target, down_target = state.pos_ned
+    alt_target = -down_target  # positive up
 
-    # Altitude target (positive up)
-    alt_target = -down_target
-
-    # Yaw target: use telemetry yaw if available, else 0
     yaw_target = 0.0
     if state.attitude_deg is not None:
         yaw_target = state.attitude_deg[2]
 
-    # Commanded "velocity feel" for XY (hold last command until new key)
+    # Commands (velocity-feel) - hold last command until SPACE or new direction
     vx_cmd = 0.0
     vy_cmd = 0.0
-    yaw_rate_cmd_deg_s = 0.0  # we integrate yaw target
+    yaw_rate_cmd_deg_s = 0.0
 
     dt = CONTROL_DT_S
 
     while state.running and not state.emergency_stop:
-        # default: keep previous commands (so holding direction feel is possible)
-        # but if you prefer "pulse" behavior, set vx_cmd=vy_cmd=yaw_rate_cmd_deg_s=0 each tick.
+        # Update UI live telemetry
+        if state.pos_ned is not None:
+            ui.alt_m = -state.pos_ned[2]
+        if state.flight_mode is not None:
+            ui.mode = getattr(state.flight_mode, "name", str(state.flight_mode))
+
+        ui.warning = ""
 
         # Read key if any
         try:
             key = command_queue.get_nowait()
-            event_log(f"KEY {decode_key(key)}")
+            ui.last_key = decode_key(key)
+            event_log(f"KEY {ui.last_key}")
         except asyncio.QueueEmpty:
             key = None
 
-        # Map key -> command updates
+        # Direction keys -> update vx/vy commands
         if key == curses.KEY_UP:
-            vx_cmd = SPEED_M_S
-            vy_cmd = 0.0
+            vx_cmd, vy_cmd = SPEED_M_S, 0.0
         elif key == curses.KEY_DOWN:
-            vx_cmd = -SPEED_M_S
-            vy_cmd = 0.0
+            vx_cmd, vy_cmd = -SPEED_M_S, 0.0
         elif key == curses.KEY_RIGHT:
-            vy_cmd = SPEED_M_S
-            vx_cmd = 0.0
+            vx_cmd, vy_cmd = 0.0, SPEED_M_S
         elif key == curses.KEY_LEFT:
-            vy_cmd = -SPEED_M_S
-            vx_cmd = 0.0
+            vx_cmd, vy_cmd = 0.0, -SPEED_M_S
 
+        # Altitude target changes
         elif key == ord("w"):
             alt_target += ALT_STEP_M
         elif key == ord("s"):
             alt_target -= ALT_STEP_M
 
+        # Yaw rate commands (integrated into yaw_target)
         elif key == ord("a"):
             yaw_rate_cmd_deg_s = -math.degrees(YAW_RATE_RAD_S)
         elif key == ord("d"):
             yaw_rate_cmd_deg_s = math.degrees(YAW_RATE_RAD_S)
 
+        # Stop
         elif key == ord(" "):
-            vx_cmd = 0.0
-            vy_cmd = 0.0
+            vx_cmd, vy_cmd = 0.0, 0.0
             yaw_rate_cmd_deg_s = 0.0
 
+        # Quit
         elif key == ord("q"):
             print("🛑 Q pressed -> exiting keyboard mode")
             event_log("USER_QUIT")
             state.running = False
             break
 
-        # Safety altitude clamp
-        if alt_target < ALT_MIN_M or alt_target > ALT_MAX_M:
-            msg = f"ALT_LIMIT_EXCEEDED alt_target={alt_target:.2f}m (limits {ALT_MIN_M}-{ALT_MAX_M})"
-            print(f"⚠ {msg}")
-            event_log(msg)
-            state.emergency_stop = True
-            state.emergency_reason = msg
-            state.running = False
-            break
+        # --- Soft altitude limiter (clamp) + warning near limits ---
+        if alt_target >= ALT_MAX_M - ALT_WARN_MARGIN_M:
+            ui.warning = f"Approaching ALT_MAX ({ALT_MAX_M:.1f}m)"
+        if alt_target <= ALT_MIN_M + ALT_WARN_MARGIN_M:
+            ui.warning = f"Approaching ALT_MIN ({ALT_MIN_M:.1f}m)"
 
-        # Integrate "velocity feel" -> position target
+        alt_target_clamped = clamp(alt_target, ALT_MIN_M, ALT_MAX_M)
+        if alt_target_clamped != alt_target:
+            # clamp happened
+            msg = f"ALT_CLAMP alt_target={alt_target:.2f} -> {alt_target_clamped:.2f}"
+            event_log(msg)
+            ui.warning = msg
+            alt_target = alt_target_clamped
+
+        # Integrate velocity-feel into XY target
         x_target += vx_cmd * dt
         y_target += vy_cmd * dt
 
-        # Integrate yaw rate -> yaw target
+        # Integrate yaw rate into yaw target
         yaw_target = wrap_yaw_deg(yaw_target + yaw_rate_cmd_deg_s * dt)
 
-        # Convert altitude target -> NED down target
+        # Convert altitude target -> NED down
         down_target = -alt_target
 
-        # Send OFFBOARD POSITION setpoint
+        # Update UI targets
+        ui.x_t, ui.y_t = x_target, y_target
+        ui.alt_t = alt_target
+        ui.yaw_t = yaw_target
+        ui.vx_cmd, ui.vy_cmd = vx_cmd, vy_cmd
+        ui.yawrate_cmd_deg_s = yaw_rate_cmd_deg_s
+
+        # Send OFFBOARD position setpoint
         await drone.offboard.set_position_ned(
             PositionNedYaw(x_target, y_target, down_target, yaw_target)
         )
@@ -281,7 +347,8 @@ async def position_control_loop(drone, state: SharedState, command_queue: "async
         await asyncio.sleep(dt)
 
     event_log("CONTROL_LOOP_ENDED")
-    print("⌨️ EXITED KEYBOARD CONTROL MODE")
+    ui.status = "CONTROL_ENDED"
+    print("⌨️ Exited keyboard control loop.")
 
 
 # ============================================================
@@ -313,15 +380,21 @@ async def main():
     state.running = True
     state.emergency_stop = False
 
-    # Telemetry
+    ui = UIState()
+
+    # Telemetry watchers + CSV logger
     print("📡 Starting telemetry watchers + CSV logger...")
     t_pos = asyncio.create_task(watch_posvel(drone, state))
     t_att = asyncio.create_task(watch_attitude(drone, state))
     t_mode = asyncio.create_task(watch_flight_mode(drone, state))
-    t_log = asyncio.create_task(log_telemetry_csv(drone, state, f"csv/{CSV_NAME}"))
 
-    # Before starting offboard, send a few position setpoints near current position (if available)
-    print("🧷 Pre-offboard: waiting pos, then streaming a few position setpoints...")
+    # IMPORTANT: pass correct relative path (NO double csv/)
+    t_log = asyncio.create_task(
+        log_telemetry_csv(drone, state, f"csv/{CSV_NAME}")
+    )
+
+    # Pre-offboard: stream a few position setpoints at current pose
+    print("🧷 Pre-offboard: waiting position, then streaming setpoints...")
     while state.pos_ned is None:
         await asyncio.sleep(0.05)
 
@@ -330,7 +403,7 @@ async def main():
     if state.attitude_deg is not None:
         yaw0 = state.attitude_deg[2]
 
-    for _ in range(20):
+    for _ in range(30):
         await drone.offboard.set_position_ned(PositionNedYaw(x0, y0, d0, yaw0))
         await asyncio.sleep(0.05)
 
@@ -344,28 +417,31 @@ async def main():
     print("✅ OFFBOARD STARTED")
     event_log("OFFBOARD_STARTED")
 
-    command_queue = asyncio.Queue()
+    command_queue: asyncio.Queue[int] = asyncio.Queue()
 
-    # Start curses in background thread (NO MAVSDK there)
+    # Start curses UI in background thread (NO MAVSDK in that thread)
     loop = asyncio.get_running_loop()
-    curses_task = loop.run_in_executor(None, run_curses, command_queue, state)
+    curses_task = loop.run_in_executor(None, run_curses, command_queue, state, ui)
 
     try:
-        await position_control_loop(drone, state, command_queue)
+        await position_control_loop(drone, state, ui, command_queue)
 
     finally:
-        # Stop everything cleanly
+        # Stop loops
         state.running = False
 
+        # Logger finish
         with suppress(Exception):
             await t_log
 
+        # Stop watchers
         for t in (t_pos, t_att, t_mode):
             t.cancel()
         for t in (t_pos, t_att, t_mode):
             with suppress(asyncio.CancelledError):
                 await t
 
+        # wait curses thread
         with suppress(Exception):
             await curses_task
 
@@ -374,8 +450,8 @@ async def main():
             await drone.offboard.stop()
         await asyncio.sleep(0.5)
 
+        # Land with retries (SITL can timeout)
         print("🛬 Landing...")
-        # Land with a retry guard (timeouts can happen in SITL)
         landed = False
         for attempt in range(3):
             try:
@@ -387,7 +463,7 @@ async def main():
                 await asyncio.sleep(1.0)
 
         if not landed:
-            print("⚠ Landing timeout -> trying disarm as fallback")
+            print("⚠ Landing timeout -> trying disarm fallback")
             event_log("LAND_FAILED_TRY_DISARM")
             with suppress(Exception):
                 await drone.action.disarm()
