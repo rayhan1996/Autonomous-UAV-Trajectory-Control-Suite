@@ -387,11 +387,9 @@ async def main():
     t_pos = asyncio.create_task(watch_posvel(drone, state))
     t_att = asyncio.create_task(watch_attitude(drone, state))
     t_mode = asyncio.create_task(watch_flight_mode(drone, state))
-
-    # IMPORTANT: pass correct relative path (NO double csv/)
     t_log = asyncio.create_task(
-        log_telemetry_csv(drone, state, f"csv/{CSV_NAME}")
-    )
+        log_telemetry_csv(drone, state, CSV_NAME)
+      )
 
     # Pre-offboard: stream a few position setpoints at current pose
     print("🧷 Pre-offboard: waiting position, then streaming setpoints...")
