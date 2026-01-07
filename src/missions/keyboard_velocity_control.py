@@ -242,9 +242,9 @@ async def position_control_loop(drone, state: SharedState, ui: UIState, command_
     event_log("FIRST_KEY_RECEIVED")
     ui.status = "CONTROL_LIVE"
 
-    # Initialize targets from current telemetry
+    # Initialize targets from current telemetry 
     x_target, y_target, down_target = state.pos_ned
-    alt_target = -down_target  # positive up
+    alt_target = -down_target   
 
     yaw_target = 0.0
     if state.attitude_deg is not None:
