@@ -209,7 +209,13 @@ async def main():
     ensure_dirs()
     csv_name = timestamped_csv()
 
-    drone = await connect_px4("udpin://0.0.0.0:14540")
+    cfg = PX4Config(
+        system_address="udpin://0.0.0.0:14540",
+        takeoff_alt_m=ALTITUDE_M,
+        offboard_rate_hz=OFFBOARD_RATE_HZ,
+    )
+
+    drone = await connect_px4(cfg.system_address)
     await wait_armable(drone)
 
     await drone.action.arm()
