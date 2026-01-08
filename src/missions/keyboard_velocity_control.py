@@ -26,6 +26,8 @@ from src.utils.telemetry_logger import log_telemetry_csv
 SPEED_M_S = 1.0          # forward/right speed
 ALT_STEP_M = 0.15
 YAW_RATE_DEG_S = 30.0
+TAKEOFF_ALT_M = 1.5
+
 
 ALT_MIN_M = 1.0
 ALT_MAX_M = 4.0
@@ -219,7 +221,7 @@ async def main():
     await wait_armable(drone)
 
     await drone.action.arm()
-    await drone.action.takeoff()
+    await drone.action.takeoff(takeoff_alt_m=TAKEOFF_ALT_M)
     await asyncio.sleep(5)
 
     state = SharedState()
