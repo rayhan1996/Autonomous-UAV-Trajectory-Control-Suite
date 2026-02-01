@@ -32,6 +32,7 @@ TAKEOFF_ALT_M = 1.5
 ALT_MIN_M = 1.0
 ALT_MAX_M = 4.0
 ALT_WARN_MARGIN = 0.25
+OFFBOARD_RATE_HZ = 10
 
 DT = 0.1  # control loop Hz = 10
 
@@ -213,7 +214,7 @@ async def main():
 
     cfg = PX4Config(
         system_address="udpin://0.0.0.0:14540",
-        takeoff_alt_m=ALTITUDE_M,
+        takeoff_alt_m=TAKEOFF_ALT_M,
         offboard_rate_hz=OFFBOARD_RATE_HZ,
     )
 
