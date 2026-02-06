@@ -20,28 +20,22 @@ from src.utils.telemetry_watchers import (
 )
 from src.utils.telemetry_logger import log_telemetry_csv
 
-
 # ===================== PARAMETERS =====================
-
 SPEED_M_S = 1.0          # forward/right speed
-ALT_STEP_M = 0.15
+ALT_STEP_M = 0.3         # ارتفاع هر بار بیشتر شده
 YAW_RATE_DEG_S = 30.0
 TAKEOFF_ALT_M = 1.5
 
-
 ALT_MIN_M = 1.0
 ALT_MAX_M = 4.0
-ALT_WARN_MARGIN = 0.25
+XY_LIMIT = 5.0            # محدودیت x/y
 OFFBOARD_RATE_HZ = 10
-
-DT = 0.1  # control loop Hz = 10
-
+DT = 0.1                  # control loop Hz = 10
+MISSION_DURATION = 20     # مدت زمان ماموریت خودکار (ثانیه)
 
 # ===================== PATHS =====================
-
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
-
 
 def ensure_dirs():
     root = repo_root()
@@ -49,20 +43,16 @@ def ensure_dirs():
     (root / "logs/telemetry").mkdir(parents=True, exist_ok=True)
     (root / "logs/plots").mkdir(parents=True, exist_ok=True)
 
-
 def timestamped_csv():
     ts = time.strftime("%Y%m%d_%H%M%S")
     return f"keyboard_velocity_control_{ts}.csv"
-
 
 def event_log(msg: str):
     path = repo_root() / "logs/telemetry/keyboard_velocity_events.txt"
     with open(path, "a") as f:
         f.write(f"{time.time():.3f} {msg}\n")
 
-
 # ===================== UI STATE =====================
-
 @dataclass
 class UIState:
     status: str = "INIT"
@@ -77,9 +67,7 @@ class UIState:
     mode: str = ""
     warning: str = ""
 
-
 # ===================== KEYBOARD =====================
-
 def decode_key(k):
     return {
         curses.KEY_UP: "UP",
@@ -94,21 +82,17 @@ def decode_key(k):
         ord("q"): "Q",
     }.get(k, str(k))
 
-
 def keyboard_ui(stdscr, q: asyncio.Queue, state: SharedState, ui: UIState):
     curses.curs_set(0)
     stdscr.nodelay(True)
-
     while state.running:
         stdscr.erase()
-
         stdscr.addstr(0, 0, "Keyboard BODY-frame Control (OFFBOARD)")
         stdscr.addstr(2, 0, "↑ ↓ : forward / backward")
         stdscr.addstr(3, 0, "← → : left / right")
         stdscr.addstr(4, 0, "W/S : altitude up/down")
         stdscr.addstr(5, 0, "A/D : yaw left/right")
         stdscr.addstr(6, 0, "SPACE: stop  |  Q: quit")
-
         stdscr.addstr(8, 0, f"STATUS: {ui.status}")
         stdscr.addstr(9, 0, f"MODE  : {ui.mode}")
         stdscr.addstr(10, 0, f"ALT   : {ui.alt:.2f} m   target {ui.alt_t:.2f}")
@@ -116,21 +100,15 @@ def keyboard_ui(stdscr, q: asyncio.Queue, state: SharedState, ui: UIState):
         stdscr.addstr(12, 0, f"Yaw   : {ui.yaw:.1f} deg")
         stdscr.addstr(13, 0, f"Cmd   : vx={ui.vx:.2f} vy={ui.vy:.2f}")
         stdscr.addstr(14, 0, f"Key   : {ui.last_key}")
-
         if ui.warning:
             stdscr.addstr(16, 0, f"⚠ {ui.warning}")
-
         stdscr.refresh()
-
         k = stdscr.getch()
         if k != -1:
             q.put_nowait(k)
-
         time.sleep(0.05)
 
-
 # ===================== CONTROL LOOP =====================
-
 async def control_loop(drone, state: SharedState, ui: UIState, q: asyncio.Queue):
     ui.status = "WAIT_TELEMETRY"
     while state.pos_ned is None:
@@ -147,7 +125,9 @@ async def control_loop(drone, state: SharedState, ui: UIState, q: asyncio.Queue)
     ui.status = "CONTROL_LIVE"
     event_log("CONTROL_START")
 
-    while state.running:
+    start_time = time.time()
+
+    while state.running and time.time() - start_time < MISSION_DURATION:
         ui.alt = -state.pos_ned[2]
         ui.mode = getattr(state.flight_mode, "name", "")
         ui.yaw = yaw_t
@@ -193,6 +173,10 @@ async def control_loop(drone, state: SharedState, ui: UIState, q: asyncio.Queue)
         y_t += v_e * DT
         yaw_t += yaw_rate * DT
 
+        # XY clamp
+        x_t = max(-XY_LIMIT, min(XY_LIMIT, x_t))
+        y_t = max(-XY_LIMIT, min(XY_LIMIT, y_t))
+
         ui.x_t, ui.y_t = x_t, y_t
         ui.alt_t = alt_t
         ui.vx, ui.vy = vx_body, vy_body
@@ -204,10 +188,9 @@ async def control_loop(drone, state: SharedState, ui: UIState, q: asyncio.Queue)
         await asyncio.sleep(DT)
 
     event_log("CONTROL_END")
-
+    state.running = False  # Force end if timer finished
 
 # ===================== MAIN =====================
-
 async def main():
     ensure_dirs()
     csv_name = timestamped_csv()
@@ -222,7 +205,6 @@ async def main():
     await wait_armable(drone)
 
     await drone.action.arm()
-
     await drone.action.set_takeoff_altitude(TAKEOFF_ALT_M)
     await drone.action.takeoff()
     await asyncio.sleep(5)
@@ -264,7 +246,6 @@ async def main():
             t.cancel()
             with suppress(asyncio.CancelledError):
                 await t
-
 
 if __name__ == "__main__":
     asyncio.run(main())
