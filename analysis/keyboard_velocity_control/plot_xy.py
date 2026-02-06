@@ -5,7 +5,7 @@ from pathlib import Path
 # ================= CONFIG =================
 
 CSV_PATH = Path("logs/csv/keyboard_velocity_control_20260206_202037.csv")
-SAVE_DIR = Path("logs/plots")
+SAVE_DIR = Path("analysis/keyboard_velocity_control/outputs")
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ================= LOAD =================
@@ -45,5 +45,5 @@ plt.ylabel("Altitude (m)")
 plt.title("Altitude Profile")
 plt.grid(True)
 
-plt.savefig(SAVE_DIR / "keyboard_altitude.png", dpi=200)
+plt.savefig(SAVE_DIR / "xy_altitude.png", dpi=200)
 plt.show()
