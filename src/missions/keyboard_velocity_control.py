@@ -222,7 +222,9 @@ async def main():
     await wait_armable(drone)
 
     await drone.action.arm()
-    await drone.action.takeoff(takeoff_alt_m=TAKEOFF_ALT_M)
+
+    await drone.action.set_takeoff_altitude(TAKEOFF_ALT_M)
+    await drone.action.takeoff()
     await asyncio.sleep(5)
 
     state = SharedState()
