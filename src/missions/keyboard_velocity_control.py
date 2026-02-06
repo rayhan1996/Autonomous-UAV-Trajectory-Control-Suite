@@ -22,17 +22,16 @@ from src.utils.telemetry_logger import log_telemetry_csv
 
 # ===================== PARAMETERS =====================
 SPEED_M_S = 1.0          # forward/right speed
-ALT_STEP_M = 0.3         # ارتفاع هر بار بیشتر شده
+ALT_STEP_M = 0.3        
 YAW_RATE_DEG_S = 30.0
 TAKEOFF_ALT_M = 1.5
 
 ALT_MIN_M = 1.0
 ALT_MAX_M = 4.0
-XY_LIMIT = 5.0            # محدودیت x/y
+XY_LIMIT = 5.0            
 OFFBOARD_RATE_HZ = 10
 DT = 0.1                  # control loop Hz = 10
-MISSION_DURATION = 20     # مدت زمان ماموریت خودکار (ثانیه)
-
+MISSION_DURATION = 20     
 # ===================== PATHS =====================
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
