@@ -13,7 +13,7 @@ metrics, and professional visualizations suitable for:
 
 ---
 
-## 🎯 Objectives
+##  Objectives
 
 After each mission, we want to answer:
 
@@ -25,7 +25,7 @@ After each mission, we want to answer:
 
 ---
 
-## 🧠 What is Analyzed?
+##  What is Analyzed?
 
 We evaluate:
 
@@ -38,7 +38,7 @@ We evaluate:
 
 ---
 
-## 🧩 Data Source
+## Data Source
 
 All plots are generated from CSV logs recorded during flight via MAVSDK.
 
@@ -52,7 +52,7 @@ flight_mode, mission_phase
 
 ---
 
-## 🌳 Directory Structure
+## Directory Structure
 
 analysis/
 ├── circle/
@@ -72,11 +72,11 @@ Each mission folder contains:
 
 ---
 
-# 🚁 Missions Overview
+# Missions Overview
 
 ---
 
-## ⭕ Circle Mission
+## Circle Mission
 
 **Goal:** Validate constant-radius position tracking and phase alignment.
 
@@ -92,7 +92,7 @@ Each mission folder contains:
 
 ---
 
-## ♾ Figure-8 Mission
+## Figure-8 Mission
 
 **Goal:** Test controller behavior on curvature reversals and dynamic transitions.
 
@@ -108,7 +108,7 @@ Each mission folder contains:
 
 ---
 
-## 🌀 Spiral (Helix) Mission
+## Spiral (Helix) Mission
 
 **Goal:** Evaluate simultaneous lateral + vertical tracking.
 
@@ -124,7 +124,7 @@ Each mission folder contains:
 
 ---
 
-## 🎮 Keyboard Velocity Control
+## Keyboard Velocity Control
 
 **Goal:** Human-in-the-loop validation of body-frame velocity commands.
 
@@ -165,7 +165,7 @@ All figures are publication-ready.
 
 ---
 
-# 🔬 Methodology
+# Methodology
 
 1. Record telemetry during flight  
 2. Parse CSV into structured arrays  
@@ -185,7 +185,7 @@ This ensures experiments are:
 
 ---
 
-# 🧑‍💼 Skills Demonstrated (for Recruiters)
+# Skills Demonstrated
 
 This layer showcases practical ability in:
 
@@ -201,7 +201,7 @@ This layer showcases practical ability in:
 
 ---
 
-# ▶ How to Reproduce a Plot
+# How to Reproduce a Plot
 
 Example:
 
@@ -213,7 +213,7 @@ Outputs are saved automatically into:
 
 analysis/<mission>/outputs/
 
-🏁 Why This Matters
+ Why This Matters
 
 Flying is only half of autonomy.
 
