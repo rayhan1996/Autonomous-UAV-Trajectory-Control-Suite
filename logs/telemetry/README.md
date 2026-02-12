@@ -51,12 +51,3 @@ At the moment, event logging is mainly implemented for the
 
 ---
 
-## Future improvements
-
-Possible extensions include:
-
-- per-mission log separation
-- automatic synchronization with trajectory plots
-- event overlay for performance evaluation
-
-
